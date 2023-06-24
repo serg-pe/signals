@@ -1,1 +1,1 @@
-# signals
+Connect clients and send signals between them
