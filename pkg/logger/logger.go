@@ -29,8 +29,11 @@ func New(cfg LoggerConfig) (*zap.Logger, error) {
 			logLvl,
 		),
 		zap.AddCaller(),
-		zap.AddStacktrace(logLvl),
 	)
+
+	if logLvl == zap.DebugLevel {
+		logger.Warn("logger works in debug mode")
+	}
 
 	return logger, nil
 }

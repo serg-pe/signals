@@ -12,7 +12,7 @@ type AppConfig struct {
 
 type ServerConfig struct {
 	Ip   string `toml:"ip"`
-	Port int    `toml:"port"`
+	Port uint16 `toml:"port"`
 }
 
 func NewFromFile(path string) (AppConfig, error) {
