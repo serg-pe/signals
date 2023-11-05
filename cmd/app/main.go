@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,16 +17,40 @@ const (
 	cfgFileName = "config.toml"
 )
 
-func main() {
+func readConfigFile() config.AppConfig {
 	curDir, err := os.Getwd()
 	if err != nil {
-		panic(fmt.Errorf("failed to get working directory path: %s", err.Error()))
+		panic(fmt.Errorf("failed to get current working directory path: %s", err.Error()))
 	}
 
-	cfg, err := config.NewFromFile(filepath.Join(curDir, cfgFileName))
+	absPath := filepath.Join(curDir, cfgFileName)
+
+	cfg, err := config.NewFromFile(absPath)
 	if err != nil {
-		panic(fmt.Errorf("failed to open config file: %s", err))
+		if errors.Is(err, os.ErrNotExist) {
+			createConfigFileAndExit(absPath)
+		} else {
+			panic(fmt.Errorf("failed to read config file status: %s", err.Error()))
+		}
 	}
+
+	return cfg
+}
+
+func createConfigFileAndExit(path string) {
+	fmt.Println("Файл конфигурации не найден, создаю config.toml...")
+	err := config.NewBaseConfigFile(path)
+	if err != nil {
+		panic(fmt.Errorf("failed to init config file: %s", err))
+	}
+	fmt.Println("Для запуска необходимо отредактировать config.toml и перезапустить сервер")
+	fmt.Println("Для продолжения нажмите любую кнопку")
+	os.Stdin.Read(nil)
+	os.Exit(0)
+}
+
+func main() {
+	cfg := readConfigFile()
 
 	logger, err := logger.New(cfg.LoggerConfig)
 	if err != nil {

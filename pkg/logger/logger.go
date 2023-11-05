@@ -1,22 +1,29 @@
 package logger
 
 import (
-	"errors"
+	"fmt"
 	"os"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
+type LogLevels string
+
+const (
+	LogLevelDebug   LogLevels = "debug"
+	LogLevelRelease LogLevels = "release"
+)
+
 func New(cfg LoggerConfig) (*zap.Logger, error) {
 	var logLvl zapcore.Level
 	switch cfg.Level {
-	case "debug":
+	case string(LogLevelDebug):
 		logLvl = zap.DebugLevel
-	case "release":
+	case string(LogLevelRelease):
 		logLvl = zap.InfoLevel
 	default:
-		return nil, errors.New("log level not defined: allowed 'debug' or 'release'")
+		return nil, fmt.Errorf("log level not defined: allowed %s or %s, got '%s'", LogLevelDebug, LogLevelRelease, cfg.Level)
 	}
 
 	encCfg := zap.NewDevelopmentEncoderConfig()
