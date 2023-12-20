@@ -38,13 +38,13 @@ func readConfigFile() config.AppConfig {
 }
 
 func createConfigFileAndExit(path string) {
-	fmt.Println("Файл конфигурации не найден, создаю config.toml...")
+	fmt.Println("config file not found, creating config.toml...")
 	err := config.NewBaseConfigFile(path)
 	if err != nil {
 		panic(fmt.Errorf("failed to init config file: %s", err))
 	}
-	fmt.Println("Для запуска необходимо отредактировать config.toml и перезапустить сервер")
-	fmt.Println("Для продолжения нажмите любую кнопку")
+	fmt.Println("edit config.toml and restart server")
+	fmt.Println("press any key to continue")
 	os.Stdin.Read(nil)
 	os.Exit(0)
 }
