@@ -54,16 +54,6 @@ func createConfigFileAndExit(path string) {
 }
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
-
-	defer func() {
-		fmt.Println("shutdown signal")
-		cancel()
-	}()
-
 	cfg := readConfigFile()
 
 	logger, err := logger.New(cfg.LoggerConfig)
@@ -78,24 +68,21 @@ func main() {
 
 	wg := sync.WaitGroup{}
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
 		err := server.Run(ctx)
-		if err == http.ErrServerClosed {
-			logger.Info("server stoped")
-		} else {
+		if !errors.Is(err, http.ErrServerClosed) {
 			logger.Error("server stoped with error", zap.Error(err))
 		}
 	}()
 	logger.Info("server successfully started", zap.String("ip", cfg.Ip), zap.Uint16("port", cfg.Port))
 
-	go func() {
-		<-sig
-		logger.Info("stop server")
-		server.Stop(ctx)
-	}()
-
+	<-ctx.Done()
+	server.Stop(ctx)
+	stop()
 	wg.Wait()
 }

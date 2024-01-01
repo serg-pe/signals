@@ -2,15 +2,14 @@ package server
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
-	"net"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/serg-pe/signals/internal/client"
 	"github.com/serg-pe/signals/internal/config"
 	"go.uber.org/zap"
 )
@@ -27,17 +26,21 @@ type Server struct {
 
 	upgrader websocket.Upgrader
 
-	wg    *sync.WaitGroup
-	pubMu *sync.Mutex
-	pub   *websocket.Conn
-	subMu *sync.Mutex
-	sub   *websocket.Conn
+	client *client.Client
+
+	wg *sync.WaitGroup
 }
 
 func New(cfg config.ServerConfig, logger *zap.Logger) (Server, error) {
-	server := Server{
+	s := Server{
 		logger: logger.Named("server"),
 		cfg:    cfg,
+
+		server: &http.Server{
+			Addr:         fmt.Sprintf("%s:%d", cfg.Ip, cfg.Port),
+			ReadTimeout:  time.Second * 15,
+			WriteTimeout: time.Second * 15,
+		},
 
 		upgrader: websocket.Upgrader{
 			ReadBufferSize:  1024,
@@ -45,16 +48,13 @@ func New(cfg config.ServerConfig, logger *zap.Logger) (Server, error) {
 			CheckOrigin:     func(r *http.Request) bool { return true },
 		},
 
-		wg:    &sync.WaitGroup{},
-		pubMu: &sync.Mutex{},
-		subMu: &sync.Mutex{},
+		wg: &sync.WaitGroup{},
 	}
 
-	return server, nil
+	return s, nil
 }
 
 func (s *Server) setupRoutes() *http.ServeMux {
-	// s.serveMux.Handle("/connection/", handlers.NewConnectionHandler(s.logger))
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/connection/", s.connect)
@@ -92,47 +92,20 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !isPub {
-		s.sub = conn
-		s.logger.Info("subscriber connected", zap.String("address", r.RemoteAddr))
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			for {
-				msgType, msg, err := s.sub.ReadMessage()
-				if err != nil && websocket.IsCloseError(err, websocket.CloseNormalClosure) {
-					break
-				}
-				if err != nil {
-					s.logger.Error("read message", zap.Error(err))
-					break
-				}
-				s.logger.Debug("new message", zap.Int("type", msgType), zap.String("msg", hex.EncodeToString(msg)))
-			}
-			s.logger.Info("client disconnected")
-			s.sub = nil
+			s.logger.Info("subscriber connected", zap.String("address", conn.RemoteAddr().String()))
+			s.client = client.New(s.logger.Named(fmt.Sprintf("client %s", conn.RemoteAddr().String())), conn)
+			go s.client.Listen()
 		}()
-	}
-
-	if s.pub != nil {
-
 	}
 }
 
 func (s *Server) Run(ctx context.Context) error {
-	server := &http.Server{
-		Addr:         fmt.Sprintf("%s:%d", s.cfg.Ip, s.cfg.Port),
-		Handler:      s.setupRoutes(),
-		ReadTimeout:  time.Second * 5,
-		WriteTimeout: time.Second * 5,
-		BaseContext: func(_ net.Listener) context.Context {
-			return ctx
-		},
-	}
+	s.server.Handler = s.setupRoutes()
 
-	s.server = server
-
-	err := s.server.ListenAndServe()
-	if err != nil {
+	if err := s.server.ListenAndServe(); err != nil {
 		return err
 	}
 
@@ -140,26 +113,15 @@ func (s *Server) Run(ctx context.Context) error {
 }
 
 func (s *Server) Stop(ctx context.Context) {
-	if s.sub != nil {
-		s.subMu.Lock()
-		defer s.subMu.Unlock()
-		err := s.sub.Close()
-		if err != nil {
-			s.logger.Debug("close connection error", zap.String("subscriber", s.sub.RemoteAddr().String()))
-		}
-	}
-	if s.pub != nil {
-		s.pubMu.Lock()
-		defer s.pubMu.Unlock()
-		err := s.pub.Close()
-		if err != nil {
-			s.logger.Debug("close connection error", zap.String("publisher", s.pub.RemoteAddr().String()))
-		}
+	err := s.server.Shutdown(ctx)
+	if err != nil {
+		s.logger.Debug("shutdown error", zap.Error(err))
 	}
 
-	if s.server != nil {
-		s.server.Shutdown(ctx)
+	if s.client != nil {
+		s.client.Stop()
 	}
-
 	s.wg.Wait()
+
+	s.logger.Info("server stopped")
 }
